@@ -20,40 +20,57 @@ you** — not guesses. This is that data, contributed by the people who own them
    ```sh
    ./collect.sh            # or  ./collect.sh <adb-serial>  if several devices are attached
    ```
-3. It prints a report and saves it to `reports/`. **Submit it** by opening a
-   [Device report issue](../../issues/new?template=device-report.yml) and pasting the
-   output, or PR the file into `reports/`. That's it — thank you!
+3. It saves the report to `reports/`, **copies it to your clipboard, and opens a
+   pre-filled GitHub issue** in your browser — just paste it into the box and click
+   **Submit**. (It does *not* auto-post on your behalf — you review and submit it
+   yourself. No `gh`/login/token needed.) Prefer a PR? Add the file under `reports/`.
 
 The script **changes nothing** on the device (no grants, no installs) and **does not**
-collect your serial number or any personal data — only hardware/OS/permission facts.
+read your serial number or any account/personal data — only the stock hardware, OS, and
+permission facts below.
 
 ## Device matrix
 
-| Model | Codename | Android | SoC · RAM | Launcher | GMS | Bootloader | Cameras | adb-grantable perms | Report |
-|---|---|---|---|---|---|---|---|---|---|
-| **Portal+ (gen 1)** | `aloha` | 9 / API 28 | msm8998 · 3.6 GB | Immortal 1.34 | none | locked (green) | 2 (720p app-usable; 1080p tracking cam is system-held) | 24 | [📄](reports/Portal-aloha.md) |
+Stock device facts. (Launcher is what the owner flashed on — not a device trait — shown
+only for context, since almost everyone repurposes these with Immortal.)
+
+| Model | Codename | Android | Chip | RAM | GMS | Bootloader | Cameras | adb-grantable perms | Launcher | Report |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Portal+ (gen 1)** | `aloha` | 9 / API 28 | Snapdragon 835 | 3.6 GB | none | locked (green) | 2 — 720p app-usable; 1080p tracking cam is system-held | 24 | Immortal 1.34 | [📄](reports/Portal-aloha.md) |
 
 _Want your model here? Run `collect.sh` and submit — Mini, Go, gen-2, and TV are all
 unmapped so far._
 
-## What the report captures
+## What the script reads — exactly
 
-- **Identity** — model, codename, Android/API, full build fingerprint, security patch,
-  hardware revision, ABIs, SoC.
-- **Hardware** — RAM, display size + density, storage, whether auto-rotation is supported.
-- **Software & security** — launcher (Immortal) version, Aloha launcher version, Google
-  Play Services presence, Aurora Store / Shizuku presence, bootloader lock + verified-boot
-  state, SELinux mode, root.
-- **Sensors** — the actual sensor list (gen-1 Portal+ has only accel / ambient-temp / light:
-  no gyro, compass, or proximity).
-- **Permission census** — all platform permissions bucketed by what a non-platform-signed
-  app can reach: **normal** (auto), **dangerous** (runtime prompt), **development**
-  (`adb pm grant` — the elevated set, listed in full), and signature/privileged **walls**.
-  This is the single most useful thing for builders: it tells you exactly which superpowers
-  a sideloaded app can be granted over ADB.
-- **Resource overlays (RROs)** — vendor theming/config overlays (e.g. Meta's `Niu` theme,
-  which is why system dialogs render oddly on these devices).
-- **Cameras** — how many, and which are held by system services.
+Everything is **read-only** `adb shell` (`getprop` / `dumpsys` / `pm` / `wm`). No writes,
+no grants, no installs, no network. Specifically:
+
+| Section | Commands it runs |
+|---|---|
+| Identity | `getprop ro.product.model/.device/.build.fingerprint/.build.version.*/.boot.revision/.product.cpu.abilist` |
+| Chip / RAM | `getprop ro.board.platform` · `grep MemTotal /proc/meminfo` |
+| Display / storage | `wm size` · `wm density` · `df /data` · `dumpsys window` (auto-rotation support flag) |
+| Stock OS & security | version of the **stock** `com.facebook.alohaapps.launcher`; presence of `com.google.android.gms`; `getprop ro.boot.flash.locked/.verifiedbootstate`; `getenforce`; whether `su` is on PATH |
+| Sensors | `dumpsys sensorservice` → the `android.sensor.*` types |
+| Permission census | `dumpsys package permissions` → every permission's `prot=` flags, bucketed into normal / dangerous / `development` (adb-grantable) / walls |
+| Overlays | `cmd overlay list` (vendor RRO theming/config) |
+| Cameras | `dumpsys media.camera` → device count + which system service holds each |
+| Repurposing (context only) | version of `com.immortal.launcher` if present |
+
+It does **not** enumerate your installed apps, accounts, files, network, or serial number.
+The only owner-installed thing it notes is the custom **launcher** (because it changes how
+the device behaves) — and it's clearly labelled as side-loaded, not a device trait.
+
+## Why a permission census?
+
+It's the single most useful thing for builders. A sideloaded app can obtain **normal**
+(auto-granted) and **dangerous** (runtime-prompt) permissions like any app — but the
+interesting ones are the **`development`-flagged** permissions, which a locked-down device
+will still let you `adb pm grant` to a normal app (e.g. `WRITE_SECURE_SETTINGS`, `DUMP`,
+`PACKAGE_USAGE_STATS`, `READ_LOGS`). The report **lists every one of those** so you know
+exactly which "superpowers" are available on a given build before you design around them.
+Everything else is a signature/privileged **wall**.
 
 ## Deep dive (gen-1 Portal+)
 

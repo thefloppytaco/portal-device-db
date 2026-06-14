@@ -12,8 +12,8 @@
 #   1. Enable ADB on the Portal (Settings → it varies by launcher; Immortal has a toggle)
 #   2. Plug it into a computer (or use wireless adb), confirm `adb devices` shows it
 #   3. ./collect.sh            # or  ./collect.sh <adb-serial>  if several devices
-#   4. Paste the printed report into a "Device report" issue on the repo, or PR it
-#      into reports/.  That's it — thank you for contributing!
+#   4. It copies the report to your clipboard and opens a pre-filled GitHub issue —
+#      paste it in and click Submit. (It does NOT auto-post; you stay in control.)
 #
 set -uo pipefail
 
@@ -36,6 +36,14 @@ DEVICE="$(prop ro.product.device)"
 BUILD="$(prop ro.build.fingerprint)"
 SLUG="$(echo "${MODEL}-${DEVICE}" | tr ' /' '--' | tr -cd 'A-Za-z0-9._-')"
 OUT="reports/${SLUG}.md"
+
+RAM="$(sh 'grep MemTotal /proc/meminfo' | awk '{printf "%.1f GB", $2/1048576}')"
+SOC_RAW="$(prop ro.board.platform)"
+case "$SOC_RAW" in           # friendly name for the known Portal SoCs
+  msm8998) CHIP="Snapdragon 835 (msm8998)";;
+  sdm660)  CHIP="Snapdragon 660 (sdm660)";;
+  *)       CHIP="${SOC_RAW:-unknown}";;
+esac
 
 # ---- permission census: categorise all platform permissions by reachability ----
 # A sideloaded app can obtain: normal (auto) + dangerous (runtime). A 'development'
@@ -68,27 +76,34 @@ write "| Build | \`${BUILD}\` |"
 write "| Security patch | $(prop ro.build.version.security_patch) |"
 write "| HW revision | rev $(prop ro.boot.revision) |"
 write "| ABIs | $(prop ro.product.cpu.abilist) |"
-write "| SoC | $(prop ro.board.platform) / $(prop ro.hardware) |"
 write ""
 write "## Hardware"
 write "| | |"
 write "|---|---|"
-write "| RAM | $(sh 'grep MemTotal /proc/meminfo' | awk '{printf "%.1f GB", $2/1048576}') |"
+write "| Chip (SoC) | ${CHIP} |"
+write "| RAM | ${RAM} |"
 write "| Display | $(sh 'wm size' | sed 's/.*: //') @ $(sh 'wm density' | sed 's/.*: //') dpi |"
 write "| Data partition | $(sh 'df /data | tail -1' | awk '{printf "%.1f GB total, %.1f GB free", $2/1048576, $4/1048576}') |"
-write "| Auto-rotation | $(sh 'dumpsys window | grep -m1 mSupportAutoRotation' | sed 's/^ *//') |"
+write "| Auto-rotation supported | $(sh 'dumpsys window | grep -m1 mSupportAutoRotation' | sed 's/^ *//;s/ .*//;s/mSupportAutoRotation=//') |"
 write ""
-write "## Software & security"
+write "## Stock OS & security"
+write "_The device's own factory stack + security posture — not anything side-loaded._"
+write ""
 write "| | |"
 write "|---|---|"
-write "| Launcher (Immortal) | $(ver com.immortal.launcher || echo 'not installed') |"
-write "| Aloha launcher | $(ver com.facebook.alohaapps.launcher) |"
-write "| Google Play Services | $(have com.google.android.gms) |"
-write "| Aurora Store | $(have com.aurora.store) |"
-write "| Shizuku | $(have moe.shizuku.privileged.api) |"
+write "| Portal system version (Aloha) | $(ver com.facebook.alohaapps.launcher) |"
+write "| Ships with Google Play Services | $(have com.google.android.gms) |"
 write "| Bootloader | flash.locked=$(prop ro.boot.flash.locked), verifiedboot=$(prop ro.boot.verifiedbootstate) |"
 write "| SELinux | $(sh getenforce) |"
-write "| Root (su) | $(sh 'command -v su >/dev/null && echo yes || echo no') |"
+write "| Root (su on PATH) | $(sh 'command -v su >/dev/null && echo yes || echo no') |"
+write ""
+IMM="$(ver com.immortal.launcher)"
+write "## Repurposing setup (what's been flashed on, if anything)"
+write "_Side-loaded, owner-specific — listed for context, not a device trait._"
+write ""
+write "| | |"
+write "|---|---|"
+write "| Custom launcher | $([ -n "$IMM" ] && echo "Immortal $IMM" || echo "none detected (stock launcher)") |"
 write ""
 write "## Sensors"
 write '```'
@@ -122,8 +137,41 @@ sh 'dumpsys media.camera | grep -iE "number of (normal )?camera devices:|Device 
 write '```'
 write ""
 write "---"
-write "_Submit this file via a \"Device report\" issue or a PR to \`reports/\`. Read-only; no personal data._"
+write "_Submitted from collect.sh. Read-only; no personal data._"
 
 echo "Wrote $OUT"
 echo "------------------------------------------------------------------"
 cat "$OUT"
+
+# ---- one-click submit ------------------------------------------------------
+# We copy the report to your clipboard and open a pre-filled GitHub issue, so
+# you just paste + click Submit. We deliberately DON'T auto-post (that'd file
+# an issue on your behalf without you seeing it) — you stay in control.
+REPO="thefloppytaco/portal-device-db"
+urlenc() { python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.read()),end="")' 2>/dev/null; }
+ISSUE_URL="https://github.com/${REPO}/issues/new?template=device-report.yml"
+if command -v python3 >/dev/null 2>&1; then
+  ISSUE_URL="${ISSUE_URL}&title=$(printf '[Device] %s — %s' "$MODEL" "$DEVICE" | urlenc)&model=$(printf '%s' "$MODEL" | urlenc)"
+fi
+
+COPIED=""
+if   command -v pbcopy  >/dev/null 2>&1; then pbcopy < "$OUT"  && COPIED=1   # macOS
+elif command -v xclip   >/dev/null 2>&1; then xclip -selection clipboard < "$OUT" && COPIED=1  # Linux/X11
+elif command -v wl-copy >/dev/null 2>&1; then wl-copy < "$OUT" && COPIED=1   # Linux/Wayland
+fi
+
+echo
+echo "================================================================="
+if   command -v open     >/dev/null 2>&1; then open "$ISSUE_URL"
+elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$ISSUE_URL" >/dev/null 2>&1
+else echo "To submit, open: $ISSUE_URL"
+fi
+if [ -n "$COPIED" ]; then
+  echo "✅ Report copied to your clipboard + a pre-filled issue opened in your browser."
+  echo "   Paste it into the 'collect.sh report' box and click Submit. Thank you!"
+else
+  echo "✅ A pre-filled issue opened in your browser. Paste the contents of:"
+  echo "      $OUT"
+  echo "   into the 'collect.sh report' box and click Submit. Thank you!"
+fi
+echo "================================================================="
