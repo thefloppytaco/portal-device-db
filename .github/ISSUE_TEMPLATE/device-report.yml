@@ -1,0 +1,40 @@
+name: Device report
+description: Submit a Portal device's capability report (from collect.sh)
+title: "[Device] <model> — <build>"
+labels: ["device-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for mapping your device! Run `./collect.sh` (it's read-only and collects
+        no personal data) and paste its full output below. A maintainer will fold it into
+        the matrix — or open a PR adding the file to `reports/` yourself.
+  - type: input
+    id: model
+    attributes:
+      label: Which Portal is this?
+      placeholder: "Portal Mini / Portal Go / Portal (gen 1) / Portal+ gen 2 / Portal TV / …"
+    validations:
+      required: true
+  - type: input
+    id: launcher
+    attributes:
+      label: Launcher + version
+      placeholder: "Immortal 1.34 / stock / other"
+    validations:
+      required: false
+  - type: textarea
+    id: report
+    attributes:
+      label: collect.sh report
+      description: Paste the full Markdown the script printed.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything unusual?
+      placeholder: "Optional — quirks, what worked or didn't, ADB/launcher setup notes."
+    validations:
+      required: false
